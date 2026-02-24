@@ -1,0 +1,921 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Road Builder V51 - Restored</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #88c999;
+            font-family: 'Pretendard', sans-serif;
+            user-select: none;
+            context-menu: none;
+        }
+
+        .toolbar {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 10px 15px;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .tool-row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: center; }
+
+        button {
+            border: 1px solid #ddd;
+            background: #fff;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 700;
+            color: #555;
+            padding: 6px 10px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            transition: all 0.1s;
+            white-space: nowrap;
+        }
+
+        button:hover { background-color: #f4f4f4; transform: translateY(-1px); }
+        button.active { background-color: #222; color: #fff; border-color: #000; }
+        button.primary { color: #1976d2; border-color: #1976d2; }
+        button.primary:hover { background-color: #e3f2fd; }
+
+        .color-btn {
+            width: 20px; height: 20px;
+            border-radius: 50%;
+            border: 2px solid #ddd;
+            padding: 0;
+            cursor: pointer;
+            transition: transform 0.1s, border-color 0.1s;
+        }
+        .color-btn:hover { transform: scale(1.2); }
+        .color-btn.selected { border: 2px solid #222; transform: scale(1.2); box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+
+        .divider { width: 1px; height: 18px; background: #ddd; margin: 0 2px; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; border: 1px solid rgba(0,0,0,0.1); }
+
+        .zoom-controls { position: absolute; bottom: 30px; right: 30px; display: flex; flex-direction: column; gap: 5px; }
+        .zoom-btn { width: 40px; height: 40px; background: white; border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.1); font-size: 20px; justify-content: center; border: none; cursor: pointer; }
+
+        .guide {
+            position: absolute; bottom: 30px; width: 100%; text-align: center; color: #fff;
+            font-size: 16px; font-weight: bold; text-shadow: 0 2px 4px rgba(0,0,0,0.4); pointer-events: none;
+        }
+        .version-tag { position: absolute; bottom: 10px; right: 10px; color: rgba(255, 255, 255, 0.6); font-size: 12px; font-weight: bold; pointer-events: none; z-index: 50; }
+
+        #overlap-menu {
+            position: absolute;
+            display: none; /* 기본적으로 숨김 */
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            padding: 6px;
+            z-index: 1000; /* 툴바보다 위에 뜨도록 */
+            min-width: 140px;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .menu-item {
+            padding: 8px 10px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #333;
+            cursor: pointer;
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: #fff;
+            border: 1px solid transparent;
+        }
+
+        .menu-item:hover {
+            background-color: #f0f8ff;
+            border-color: #cceeff;
+        }
+
+        .menu-header {
+            font-size: 11px;
+            font-weight: bold;
+            color: #888;
+            padding: 4px 8px;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 2px;
+        }
+
+        .menu-icon {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+            border: 1px solid rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+<input type="file" id="fileInput" accept=".json" style="display: none;">
+
+<div id="overlap-menu"></div>
+<div class="toolbar" onmousedown="event.stopPropagation()">
+    <div class="tool-row">
+        <button onclick="undoAction()">실행 취소 (Ctrl+Z)</button>
+        <button id="btn-move" onclick="setMode('move')">선택 / 이동</button>
+        <button onclick="clearAll()">초기화</button>
+        <div class="divider"></div>
+        <button class="primary" onclick="saveProject()">저장</button>
+        <button class="primary" onclick="loadProject()">열기</button>
+        <button onclick="saveImage()">이미지 캡처</button>
+    </div>
+
+    <div class="tool-row">
+        <button id="btn-asphalt" class="active" onclick="setMode('asphalt')"><span class="dot" style="background:#757575"></span> 아스팔트</button>
+        <button id="btn-zebra" onclick="setMode('zebra')"><span class="dot" style="background:#fff"></span> 횡단보도</button>
+        <div class="divider"></div>
+        <button id="btn-traffic" onclick="setMode('traffic')">신호등</button>
+        <button id="btn-road-text" onclick="setMode('road-text')">텍스트</button>
+        <button id="btn-compass" onclick="setMode('compass')">방위표</button>
+    </div>
+
+    <div class="tool-row">
+        <button id="btn-yellow" onclick="setMode('yellow')"><span class="dot" style="background:#ffcc00"></span> 노랑</button>
+        <button id="btn-white-dot" onclick="setMode('white-dot')"><span class="dot" style="background:#fff"></span> 점선</button>
+        <button id="btn-white-solid" onclick="setMode('white-solid')"><span class="dot" style="background:#fff"></span> 실선</button>
+        <button id="btn-stop-line" onclick="setMode('stop-line')"><span class="dot" style="background:#fff; height:4px;"></span> 정지선</button>
+    </div>
+
+    <div class="tool-row">
+        <button id="btn-arrow" onclick="setMode('arrow')">진로 화살표</button>
+        <div class="divider"></div>
+        <button class="color-btn" style="background: #ff3333;" onclick="setRouteColor('#ff3333', this)"></button>
+        <button class="color-btn" style="background: #ffaa00;" onclick="setRouteColor('#ffaa00', this)"></button>
+        <button class="color-btn" style="background: #ffff00;" onclick="setRouteColor('#ffff00', this)"></button>
+        <button class="color-btn" style="background: #33ff33;" onclick="setRouteColor('#33ff33', this)"></button>
+        <button class="color-btn selected" style="background: #00ffff;" onclick="setRouteColor('#00ffff', this)"></button>
+        <button class="color-btn" style="background: #3399ff;" onclick="setRouteColor('#3399ff', this)"></button>
+        <button class="color-btn" style="background: #cc33ff;" onclick="setRouteColor('#cc33ff', this)"></button>
+        <button class="color-btn" style="background: #ffffff;" onclick="setRouteColor('#ffffff', this)"></button>
+    </div>
+</div>
+
+<div class="zoom-controls">
+    <button class="zoom-btn" onclick="adjustZoom(0.1)">+</button>
+    <button class="zoom-btn" onclick="adjustZoom(-0.1)">-</button>
+</div>
+
+<div class="guide" id="guideText">이동 모드: 클릭(순환 선택), 드래그(다중 선택), Del(삭제)</div>
+<div class="version-tag">Road Builder V51</div>
+
+<canvas id="canvas"></canvas>
+
+<script>
+    // --- 전역 변수 및 설정 ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const fileInput = document.getElementById('fileInput');
+
+    const PERSPECTIVE = 0.6;
+    const GRID_SIZE = 50;
+    const ROAD_WIDTH = 102;
+    const VIEW_OFFSET_X = 0;
+    const VIEW_OFFSET_Y = 30;
+
+    let view = { x: 0, y: 0, scale: 1.0 };
+    let mode = 'asphalt';
+    let currentRouteColor = '#00ffff';
+
+    // 인터랙션 플래그
+    let isLeftDragging = false;
+    let isRightDragging = false;
+    let isSpaceDragging = false;
+    let isSelectionBoxDragging = false;
+
+    // 데이터
+    let objects = [];
+    let nextId = 1;
+    let history = [];
+    let selectedObjects = [];
+    let clipboard = [];
+
+    // 좌표
+    let mouseScreen = {x:0, y:0};
+    let mouseWorld = {x:0, y:0};
+    let snapPos = {x:0, y:0};
+    let centerSnapPos = {x:0, y:0};
+
+    let startPos = null;
+    let selectionStart = null;
+    let moveStartPos = null;
+    let hoveredObj = null;
+    let lastMousePos = {x:0, y:0};
+
+    const overlapMenu = document.getElementById('overlap-menu');
+
+    // --- 초기화 ---
+    function init() {
+        window.addEventListener('resize', resize);
+        resize();
+        view.x = canvas.width / 2;
+        view.y = canvas.height / 2;
+        draw();
+    }
+
+    function resize() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        draw();
+    }
+
+    // --- 좌표 변환 시스템 ---
+    function toWorld(sx, sy) {
+        const wx = (sx - view.x) / view.scale;
+        const wy = (sy - view.y) / view.scale / PERSPECTIVE;
+        return { x: wx, y: wy };
+    }
+    function toScreen(wx, wy) {
+        const sx = wx * view.scale + view.x;
+        const sy = wy * view.scale * PERSPECTIVE + view.y;
+        return { x: sx, y: sy };
+    }
+    function getSnap(pos) {
+        const u = pos.x + pos.y; const v = pos.x - pos.y;
+        const snapU = Math.round(u / GRID_SIZE) * GRID_SIZE; const snapV = Math.round(v / GRID_SIZE) * GRID_SIZE;
+        const x = (snapU + snapV) / 2; const y = (snapU - snapV) / 2;
+        return { x: x, y: y };
+    }
+    function getCenterSnap(pos) {
+        const u = pos.x + pos.y; const v = pos.x - pos.y;
+        const snapU = (Math.floor(u / GRID_SIZE) + 0.5) * GRID_SIZE; const snapV = (Math.floor(v / GRID_SIZE) + 0.5) * GRID_SIZE;
+        const x = (snapU + snapV) / 2; const y = (snapU - snapV) / 2;
+        return { x: x, y: y };
+    }
+    function updateMouseWorld(client_x, client_y) {
+        const rect = canvas.getBoundingClientRect();
+        mouseScreen = { x: client_x - rect.left, y: client_y - rect.top };
+        mouseWorld = toWorld(mouseScreen.x, mouseScreen.y);
+        snapPos = getSnap(mouseWorld);
+        centerSnapPos = getCenterSnap(mouseWorld);
+    }
+
+    // --- 이벤트 리스너 ---
+    window.addEventListener('contextmenu', e => e.preventDefault());
+
+    window.addEventListener('keydown', (e) => {
+        const k = e.key.toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && k === 'z') { undoAction(); e.preventDefault(); return; }
+        if ((e.ctrlKey || e.metaKey) && k === 'c') { copySelection(); e.preventDefault(); return; }
+        if ((e.ctrlKey || e.metaKey) && k === 'v') { pasteSelection(); e.preventDefault(); return; }
+        if (e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); e.preventDefault(); return; }
+
+        const moveSpeed = 30;
+        switch(e.key) {
+            case 'ArrowUp': view.y += moveSpeed; break;
+            case 'ArrowDown': view.y -= moveSpeed; break;
+            case 'ArrowLeft': view.x += moveSpeed; break;
+            case 'ArrowRight': view.x -= moveSpeed; break;
+        }
+        draw();
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const zoomSpeed = 0.001;
+        const newScale = Math.max(0.2, Math.min(5.0, view.scale - e.deltaY * zoomSpeed));
+        view.scale = newScale;
+        updateMouseWorld(e.clientX, e.clientY);
+        draw();
+    }, { passive: false });
+
+    canvas.addEventListener('mousedown', (e) => {
+        lastMousePos = { x: e.clientX, y: e.clientY };
+        updateMouseWorld(e.clientX, e.clientY);
+
+        hideOverlapMenu();
+
+        if (e.button === 2) { // 우클릭
+            if (mode === 'move') {
+                // 우클릭도 겹침 고려 (최상위)
+                let clickedObj = findTopObjectAt(mouseWorld);
+                if (clickedObj) {
+                    saveState();
+                    if (selectedObjects.includes(clickedObj)) {
+                        selectedObjects.forEach(rotateObject);
+                    } else {
+                        rotateObject(clickedObj);
+                    }
+                    draw();
+                    return;
+                }
+            }
+            isRightDragging = true;
+        } else if (e.button === 0) { // 좌클릭
+            onLeftDown(e);
+        }
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        const dx = e.clientX - lastMousePos.x;
+        const dy = e.clientY - lastMousePos.y;
+        lastMousePos = { x: e.clientX, y: e.clientY };
+        updateMouseWorld(e.clientX, e.clientY);
+
+        if (!isLeftDragging && !isRightDragging && !isSpaceDragging && !isSelectionBoxDragging) {
+            // ★ 수정됨: 'move' 모드일 때만 호버링 대상을 찾고, 아니면 null로 초기화
+            if (mode === 'move') {
+                hoveredObj = findTopObjectAt(mouseWorld);
+            } else {
+                hoveredObj = null;
+            }
+        }
+
+        if (isRightDragging || isSpaceDragging) {
+            view.x += dx; view.y += dy;
+            draw(); return;
+        }
+
+        if (isLeftDragging || isSelectionBoxDragging) {
+            onLeftMove(dx, dy);
+        } else {
+            draw();
+        }
+    });
+
+    canvas.addEventListener('mouseup', (e) => {
+        if (e.button === 2) isRightDragging = false;
+        else if (e.button === 0) onLeftUp();
+        isSpaceDragging = false;
+    });
+
+    // --- 로직 ---
+    const drawModes = ['asphalt', 'zebra', 'yellow', 'white-dot', 'white-solid', 'stop-line'];
+
+    function onLeftDown(e) {
+        // 1. 선택/이동 모드
+        if (mode === 'move') {
+            const hits = findAllObjectsAt(mouseWorld);
+
+            // 객체 클릭
+            if (hits.length > 0) {
+                // ★ [수정 핵심] 클릭한 위치의 겹친 물체들(hits) 중에,
+                // 현재 선택된 물체(selectedObjects)가 하나라도 포함되어 있다면 메뉴를 띄우지 않음 (이동 우선)
+                const isAnySelectedHit = hits.some(hit => selectedObjects.includes(hit));
+
+                // 조건: 2개 이상 겹침 AND Ctrl키 안 누름 AND 이미 선택된 것을 누른 게 아님 -> 메뉴 표시
+                if (hits.length > 1 && !e.ctrlKey && !e.metaKey && !isLeftDragging && !isAnySelectedHit) {
+                    showOverlapMenu(e.clientX, e.clientY, hits);
+                    return; // 리스트 띄우고 중단
+                }
+
+                if (e.ctrlKey || e.metaKey) {
+                    // 다중 선택 (Ctrl) - 최상위만 토글
+                    const topHit = hits[0];
+                    const idx = selectedObjects.indexOf(topHit);
+                    if (idx >= 0) selectedObjects.splice(idx, 1);
+                    else selectedObjects.push(topHit);
+                } else {
+                    // 이미 선택된 상태라면 그대로 유지 (이동 준비), 아니라면 최상위 선택
+                    if (!selectedObjects.includes(hits[0]) && !isAnySelectedHit) {
+                        selectedObjects = [hits[0]];
+                    }
+                }
+                isLeftDragging = true;
+                moveStartPos = { ...mouseWorld };
+            }
+            // 빈 공간 클릭
+            else {
+                if (!e.ctrlKey && !e.metaKey) selectedObjects = [];
+                isSelectionBoxDragging = true;
+                selectionStart = { ...mouseScreen };
+            }
+            draw();
+            return;
+        }
+
+        // 2. 그리기 모드 (이하는 기존과 동일)
+        saveState();
+
+        if (mode === 'road-text') {
+            const text = prompt("입력할 텍스트:");
+            if (text && text.trim()) {
+                objects.push({ id: nextId++, category: mode, x: centerSnapPos.x, y: centerSnapPos.y, text: text.trim(), dir: 0 });
+            }
+            draw(); return;
+        }
+        if (mode === 'compass') {
+            objects.push({ id: nextId++, category: 'prop', type: 'compass', x: centerSnapPos.x, y: centerSnapPos.y, dir: 0 });
+            draw(); return;
+        }
+        if (mode === 'arrow') {
+            isLeftDragging = true; startPos = { ...centerSnapPos }; return;
+        }
+        if (mode === 'traffic') {
+            objects.push({ id: nextId++, category: 'prop', type: 'traffic', x: snapPos.x, y: snapPos.y, state: 0, dir: 0 });
+            draw(); return;
+        }
+        if (drawModes.includes(mode)) {
+            isLeftDragging = true; startPos = { ...snapPos };
+        }
+    }
+
+    function onLeftMove(dx, dy) {
+        if (isSelectionBoxDragging) { draw(); return; }
+
+        if (mode === 'move' && isLeftDragging && selectedObjects.length > 0) {
+            // 스냅 이동
+            const oldSnap = getSnap(moveStartPos);
+            const newSnap = getSnap(mouseWorld);
+            const diffX = newSnap.x - oldSnap.x;
+            const diffY = newSnap.y - oldSnap.y;
+
+            if (diffX !== 0 || diffY !== 0) {
+                selectedObjects.forEach(obj => {
+                    if (obj.points) {
+                        obj.points.forEach(p => { p.x += diffX; p.y += diffY; });
+                    } else {
+                        obj.x += diffX; obj.y += diffY;
+                    }
+                });
+                moveStartPos = { ...mouseWorld };
+            }
+        }
+        draw();
+    }
+
+    function onLeftUp() {
+        if (isSelectionBoxDragging) {
+            isSelectionBoxDragging = false;
+            selectObjectsInBox(selectionStart, mouseScreen);
+            draw();
+            return;
+        }
+
+        if (!isLeftDragging) return;
+
+        if (mode === 'arrow') {
+            if (startPos && (startPos.x !== centerSnapPos.x || startPos.y !== centerSnapPos.y)) {
+                objects.push({ id: nextId++, category: 'route', type: 'arrow', points: [startPos, { ...centerSnapPos }], color: currentRouteColor });
+            }
+        } else if (drawModes.includes(mode)) {
+            if (startPos && (startPos.x !== snapPos.x || startPos.y !== snapPos.y)) {
+                let cat = (mode === 'asphalt') ? 'road' : 'marking';
+                objects.push({ id: nextId++, category: cat, type: mode, points: [startPos, { ...snapPos }] });
+            }
+        }
+
+        isLeftDragging = false;
+        startPos = null;
+        moveStartPos = null;
+        draw();
+    }
+
+    // --- Helper ---
+    function findAllObjectsAt(pos) {
+        let hits = [];
+        for (let i = objects.length - 1; i >= 0; i--) {
+            if (checkHit(pos, objects[i])) hits.push(objects[i]);
+        }
+        return hits;
+    }
+
+    function findTopObjectAt(pos) {
+        const hits = findAllObjectsAt(pos);
+        return hits.length > 0 ? hits[0] : null;
+    }
+
+    function rotateObject(obj) {
+        if (['prop', 'road-text', 'compass', 'arrow'].includes(obj.category) || ['compass', 'arrow'].includes(obj.type)) {
+            obj.dir = (obj.dir + 1) % 4;
+        }
+    }
+
+    function checkHit(pos, obj) {
+        if (obj.category === 'road-text') {
+            ctx.font = "900 24px Pretendard, sans-serif";
+            const w = ctx.measureText(obj.text).width + 30; const h = 50;
+            const dx = pos.x - obj.x; const dy = (pos.y - obj.y) / PERSPECTIVE;
+            let angle = Math.PI / 4; if (obj.dir === 1 || obj.dir === 3) angle = -Math.PI / 4;
+            const rad = -angle;
+            const rx = dx * Math.cos(rad) - dy * Math.sin(rad);
+            const ry = dx * Math.sin(rad) + dy * Math.cos(rad);
+            return Math.abs(rx) < w/2 && Math.abs(ry) < h/2;
+        }
+        if (['prop','compass'].includes(obj.category) || ['compass'].includes(obj.type)) {
+            return Math.hypot(pos.x - obj.x, pos.y - obj.y) < 40;
+        }
+        if (obj.points) {
+            let tol = (obj.category === 'road') ? 50 : 20;
+            if (obj.category === 'route') tol = 30;
+            return isPointNearLine(pos, obj.points[0], obj.points[1], tol);
+        }
+        return false;
+    }
+
+    function isPointNearLine(p, a, b, tol) {
+        const pa = { x: p.x - a.x, y: p.y - a.y };
+        const ba = { x: b.x - a.x, y: b.y - a.y };
+        const h = Math.max(0, Math.min(1, (pa.x * ba.x + pa.y * ba.y) / (ba.x * ba.x + ba.y * ba.y)));
+        return Math.hypot(p.x - (a.x + h * ba.x), p.y - (a.y + h * ba.y)) < tol;
+    }
+
+    function selectObjectsInBox(p1, p2) {
+        const left = Math.min(p1.x, p2.x); const right = Math.max(p1.x, p2.x);
+        const top = Math.min(p1.y, p2.y); const bottom = Math.max(p1.y, p2.y);
+        selectedObjects = [];
+        objects.forEach(obj => {
+            let tx, ty;
+            if (obj.points) { tx = (obj.points[0].x + obj.points[1].x)/2; ty = (obj.points[0].y + obj.points[1].y)/2; }
+            else { tx = obj.x; ty = obj.y; }
+            const s = toScreen(tx, ty);
+            if (s.x >= left && s.x <= right && s.y >= top && s.y <= bottom) selectedObjects.push(obj);
+        });
+    }
+
+    // --- 편집 ---
+    function saveState() {
+        if (history.length > 50) history.shift();
+        history.push(JSON.stringify(objects));
+    }
+    function undoAction() {
+        if (history.length === 0) return;
+        objects = JSON.parse(history.pop());
+        selectedObjects = [];
+        hoveredObj = null;
+        draw();
+    }
+    function deleteSelected() {
+        if (selectedObjects.length === 0) return;
+        saveState();
+        objects = objects.filter(o => !selectedObjects.includes(o));
+        selectedObjects = [];
+        hoveredObj = null;
+        draw();
+    }
+    function copySelection() { if (selectedObjects.length > 0) clipboard = JSON.parse(JSON.stringify(selectedObjects)); }
+    function pasteSelection() {
+        if (clipboard.length === 0) return;
+        saveState();
+        const newSel = [];
+        clipboard.forEach(o => {
+            o.id = nextId++;
+            if (o.points) { o.points.forEach(p => { p.x += GRID_SIZE; p.y += GRID_SIZE; }); }
+            else { o.x += GRID_SIZE; o.y += GRID_SIZE; }
+            objects.push(o); newSel.push(o);
+        });
+        selectedObjects = newSel;
+        clipboard.forEach(o => {
+            if (o.points) { o.points.forEach(p => { p.x += GRID_SIZE; p.y += GRID_SIZE; }); }
+            else { o.x += GRID_SIZE; o.y += GRID_SIZE; }
+        });
+        draw();
+    }
+    function clearAll() { saveState(); objects = []; selectedObjects = []; draw(); }
+
+    // --- 기타 ---
+    function setMode(m) {
+        mode = m;
+        document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+        if(document.getElementById('btn-'+m)) document.getElementById('btn-'+m).classList.add('active');
+        let txt = "다이아몬드 격자에 맞춰 그려보세요!";
+        if(m === 'move') txt = "이동 모드: 클릭(순환 선택), 드래그(다중 선택), Ctrl+C/V(복사), Del(삭제)";
+        else if(m === 'arrow') txt = "격자 중앙을 클릭 후 드래그하여 경로를 그리세요.";
+        document.getElementById('guideText').innerText = txt;
+        draw();
+    }
+    function adjustZoom(amount) {
+        view.scale = Math.max(0.2, Math.min(5.0, view.scale + amount));
+        draw();
+    }
+    function setRouteColor(color, btn) {
+        currentRouteColor = color;
+        document.querySelectorAll('.color-btn').forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        if (mode === 'move' && selectedObjects.length > 0) {
+            let changed = false;
+            selectedObjects.forEach(obj => { if (obj.category === 'route') { obj.color = color; changed = true; } });
+            if(changed) draw();
+        }
+    }
+    // 파일 IO
+    function saveProject() {
+        const data = JSON.stringify({ version: "V51", nextId, objects });
+        const blob = new Blob([data], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `road_project_${Date.now()}.json`; a.click();
+        URL.revokeObjectURL(url);
+    }
+    function loadProject() { fileInput.click(); }
+    // V53 Fix: 파일 이벤트 바인딩 보장
+    fileInput.addEventListener('change', (e) => {
+        const f = e.target.files[0]; if(!f) return;
+        const r = new FileReader();
+        r.onload = (ev) => {
+            try {
+                const d = JSON.parse(ev.target.result);
+                if(d.objects) { objects = d.objects; nextId = d.nextId || objects.length+1; draw(); alert("로드 완료!"); }
+            } catch(err) { alert("파일 오류"); }
+        };
+        r.readAsText(f);
+        // 같은 파일 다시 열기 위해 value 초기화
+        e.target.value = '';
+    });
+    function saveImage() {
+        ctx.save(); ctx.globalCompositeOperation = 'destination-over'; ctx.fillStyle = '#88c999'; ctx.fillRect(0,0,canvas.width,canvas.height);
+        const a = document.createElement('a'); a.download = 'road_capture.png'; a.href = canvas.toDataURL(); a.click();
+        ctx.restore(); draw();
+    }
+
+    // --- 그리기 함수들 ---
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.save();
+        ctx.translate(view.x, view.y); ctx.scale(view.scale, view.scale); ctx.scale(1, PERSPECTIVE);
+        drawIsometricGrid();
+
+        ctx.translate(VIEW_OFFSET_X, VIEW_OFFSET_Y);
+        // 1. Roads (Side)
+        objects.forEach(o => { if(o.category === 'road') drawLineObj(o, 'side'); });
+        if(isLeftDragging && mode === 'asphalt') drawLineObj({type:mode, points:[startPos, snapPos]}, 'side', true);
+        ctx.translate(-VIEW_OFFSET_X, -VIEW_OFFSET_Y);
+
+        // 2. Roads (Surface)
+        objects.forEach(o => { if(o.category === 'road') drawLineObj(o, 'surface'); });
+        if(isLeftDragging && mode === 'asphalt') drawLineObj({type:mode, points:[startPos, snapPos]}, 'surface', true);
+
+        // 3. Markings
+        objects.forEach(o => { if(o.category === 'marking') drawLineObj(o, 'surface'); });
+        const lineModes = ['zebra','yellow','white-dot','white-solid','stop-line'];
+        if(isLeftDragging && lineModes.includes(mode)) drawLineObj({type:mode, points:[startPos, snapPos]}, 'surface', true);
+
+        // 4. Props
+        objects.filter(o => o.category === 'road-text').forEach(o => drawRoadText(o.x, o.y, o.text, o.dir));
+        objects.filter(o => o.type === 'compass').forEach(o => drawCompassObj(o));
+        objects.filter(o => o.category === 'route').forEach(o => drawIsoRoute(o));
+        if(isLeftDragging && mode === 'arrow') drawIsoRoute({points:[startPos, centerSnapPos], color:currentRouteColor});
+
+        // 5. Preview
+        if(!isLeftDragging && !isRightDragging && !hoveredObj) drawPreview();
+
+        // 6. Highlight
+        if(hoveredObj && !selectedObjects.includes(hoveredObj) && !isLeftDragging) drawHighlight(hoveredObj, 'cyan');
+        selectedObjects.forEach(o => drawHighlight(o, '#0099ff', 2));
+
+        // 7. Cursor
+        if(!isLeftDragging && !isRightDragging && !isSelectionBoxDragging) {
+            if(['road-text','compass','arrow'].includes(mode)) drawCenterCursor(centerSnapPos);
+            else if(mode === 'move') { /* No cursor */ }
+            else drawDiamondCursor(snapPos);
+        }
+        ctx.restore();
+
+        // 8. Screen Space
+        ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+        objects.filter(o => o.type === 'traffic').forEach(o => {
+            const s = toScreen(o.x, o.y); drawTrafficLightShadow(s.x, s.y, o.dir);
+        });
+        objects.filter(o => o.type === 'traffic').forEach(o => {
+            const s = toScreen(o.x, o.y); drawRotatedTrafficLight(s.x, s.y, o.state, o.dir);
+        });
+        if(mode === 'traffic' && !isLeftDragging && !hoveredObj) {
+            ctx.globalAlpha = 0.5; const s = toScreen(snapPos.x, snapPos.y);
+            drawTrafficLightShadow(s.x, s.y, 0); drawRotatedTrafficLight(s.x, s.y, 0, 0); ctx.globalAlpha = 1.0;
+        }
+        if(isSelectionBoxDragging) {
+            const w = mouseScreen.x - selectionStart.x; const h = mouseScreen.y - selectionStart.y;
+            ctx.fillStyle = 'rgba(0, 150, 255, 0.2)'; ctx.strokeStyle = 'rgba(0, 150, 255, 0.8)'; ctx.lineWidth = 1;
+            ctx.fillRect(selectionStart.x, selectionStart.y, w, h); ctx.strokeRect(selectionStart.x, selectionStart.y, w, h);
+        }
+    }
+
+    function drawPreview() {
+        ctx.save(); ctx.globalAlpha = 0.5;
+        if(mode === 'compass') drawCompassObj({x:centerSnapPos.x, y:centerSnapPos.y, dir:0});
+        else if(mode === 'road-text') drawRoadText(centerSnapPos.x, centerSnapPos.y, "텍스트", 0);
+        else if(mode === 'arrow') { ctx.fillStyle = currentRouteColor; ctx.beginPath(); ctx.arc(centerSnapPos.x, centerSnapPos.y, 5, 0, Math.PI*2); ctx.fill(); }
+        else if(drawModes.includes(mode)) { ctx.fillStyle = (mode === 'asphalt') ? '#757575' : '#fff'; ctx.beginPath(); ctx.arc(snapPos.x, snapPos.y, 5, 0, Math.PI*2); ctx.fill(); }
+        ctx.restore();
+    }
+
+    function drawHighlight(obj, color, wBoost=0) {
+        ctx.save(); ctx.strokeStyle = color; ctx.lineWidth = 4 + wBoost; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.globalAlpha = 0.8;
+        if(obj.category === 'road-text') {
+            ctx.translate(obj.x, obj.y); let a = Math.PI/4; if(obj.dir===1||obj.dir===3) a = -Math.PI/4;
+            ctx.rotate(a); ctx.scale(1, PERSPECTIVE);
+            ctx.font = "900 24px Pretendard"; const w = ctx.measureText(obj.text).width + 30;
+            ctx.beginPath(); ctx.roundRect(-w/2, -25, w, 50, 8); ctx.stroke();
+        } else if(['prop','compass'].includes(obj.category)) {
+            ctx.beginPath(); ctx.arc(obj.x, obj.y, 40, 0, Math.PI*2); ctx.stroke();
+        } else if(obj.points) {
+            let w = (obj.category === 'road') ? ROAD_WIDTH : 10; if(obj.category==='route') w = 20;
+            ctx.lineWidth = w + 6 + wBoost;
+            if(obj.category==='route') {
+                const p1=obj.points[0]; const p2=obj.points[1];
+                const isS = Math.abs(Math.abs(p2.x-p1.x)-Math.abs(p2.y-p1.y)) < 2;
+                drawPath(p1, p2, w+6, isS);
+            } else {
+                ctx.beginPath(); ctx.moveTo(obj.points[0].x, obj.points[0].y); ctx.lineTo(obj.points[1].x, obj.points[1].y); ctx.stroke();
+            }
+        }
+        ctx.restore();
+    }
+
+    // ... [이하 drawIsoRoute, drawPath, drawCompassObj, drawNumber4Shape, drawIsometricGrid, drawLineObj, drawTrafficLightShadow, drawRotatedTrafficLight, drawRoadText] ...
+    // (V51과 동일)
+    function drawIsoRoute(obj) {
+        if(!obj.points) return; const p1=obj.points[0]; const p2=obj.points[1];
+        const isS = Math.abs(Math.abs(p2.x-p1.x)-Math.abs(p2.y-p1.y)) < 2;
+        const w = 12; const c = obj.color || '#00ffff';
+        ctx.save(); ctx.save(); ctx.translate(0, 15); ctx.strokeStyle='rgba(0,0,0,0.2)'; drawPath(p1, p2, w, isS); ctx.restore();
+        ctx.globalAlpha = 0.6; ctx.strokeStyle = c;
+        if(selectedObjects.includes(obj)) { ctx.lineWidth = w+4; ctx.globalAlpha = 0.9; }
+        drawPath(p1, p2, w, isS); ctx.restore();
+    }
+    function drawPath(p1, p2, w, isS) {
+        ctx.lineWidth = w; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.beginPath(); ctx.moveTo(p1.x, p1.y);
+        if(isS) ctx.lineTo(p2.x, p2.y);
+        else { const cx = (p1.x+p2.x+p2.y-p1.y)/2; const cy = (p1.y+p2.y+p2.x-p1.x)/2; ctx.quadraticCurveTo(cx, cy, p2.x, p2.y); }
+        ctx.stroke();
+    }
+    function drawCompassObj(obj) {
+        ctx.save(); ctx.translate(obj.x, obj.y);
+        let a = -Math.PI/4 + (obj.dir * -Math.PI/2); ctx.rotate(a); ctx.scale(1, PERSPECTIVE);
+        ctx.save(); ctx.translate(0,6); ctx.fillStyle='rgba(0,0,0,0.3)'; drawNumber4Shape(60); ctx.restore();
+        ctx.fillStyle='#222'; ctx.strokeStyle='#000'; ctx.lineWidth=2; drawNumber4Shape(60, true);
+        ctx.font="900 24px Pretendard"; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.save(); ctx.translate(0, -80); ctx.fillStyle='#d32f2f'; ctx.fillText("N",0,0); ctx.restore(); ctx.restore();
+    }
+    function drawNumber4Shape(s, str=false) {
+        const w=s*0.6; ctx.beginPath(); ctx.rect(-3, -s, 6, s*2); ctx.fill(); if(str) ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0,-s); ctx.lineTo(-w,0); ctx.lineTo(w/2,0); ctx.stroke();
+    }
+    function drawRoadText(x, y, t, d) {
+        ctx.save(); ctx.translate(x, y); let a = Math.PI/4; if(d===1||d===3) a=-Math.PI/4;
+        ctx.rotate(a); ctx.scale(1, PERSPECTIVE);
+        ctx.font="900 24px Pretendard"; ctx.textAlign='center'; ctx.textBaseline='middle';
+        ctx.shadowColor='rgba(0,0,0,0.5)'; ctx.shadowBlur=2; ctx.shadowOffsetY=1;
+        ctx.fillStyle='#fff'; ctx.fillText(t,0,0); ctx.restore();
+    }
+    function drawIsometricGrid() {
+        const tl = toWorld(0, 0); const br = toWorld(canvas.width, canvas.height);
+        let minU = Infinity, maxU = -Infinity, minV = Infinity, maxV = -Infinity;
+
+        // 화면 네 귀퉁이의 u, v 좌표 범위 계산
+        [tl, toWorld(canvas.width, 0), br, toWorld(0, canvas.height)].forEach(p => {
+            const u = p.x + p.y;
+            const v = p.x - p.y;
+            minU = Math.min(minU, u); maxU = Math.max(maxU, u);
+            minV = Math.min(minV, v); maxV = Math.max(maxV, v);
+        });
+
+        const buff = GRID_SIZE * 5;
+        minU -= buff; maxU += buff;
+        minV -= buff; maxV += buff;
+
+        const sU = Math.floor(minU / GRID_SIZE) * GRID_SIZE;
+        const eU = Math.ceil(maxU / GRID_SIZE) * GRID_SIZE;
+
+        // 1. U 라인 그리기 (기존과 동일, / 방향)
+        for (let u = sU; u <= eU; u += GRID_SIZE) {
+            ctx.lineWidth = (Math.abs(u) % (GRID_SIZE * 5) < 0.1) ? 2 : 1;
+            ctx.strokeStyle = (ctx.lineWidth === 2) ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)";
+            ctx.beginPath();
+            const c = u / 2;
+            // x가 증가하면 y는 감소해야 함 (x+y=u)
+            ctx.moveTo(c - 5000, c + 5000);
+            ctx.lineTo(c + 5000, c - 5000);
+            ctx.stroke();
+        }
+
+        const sV = Math.floor(minV / GRID_SIZE) * GRID_SIZE;
+        const eV = Math.ceil(maxV / GRID_SIZE) * GRID_SIZE;
+
+        // 2. V 라인 그리기 (★수정됨★, \ 방향)
+        for (let v = sV; v <= eV; v += GRID_SIZE) {
+            ctx.lineWidth = (Math.abs(v) % (GRID_SIZE * 5) < 0.1) ? 2 : 1;
+            ctx.strokeStyle = (ctx.lineWidth === 2) ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.2)";
+            ctx.beginPath();
+            const c = v / 2;
+
+            // ★ 수정 포인트 ★
+            // 기존: ctx.moveTo(c-5000, -c+5000); ctx.lineTo(c+5000, -c-5000); (기울기 -1)
+            // 수정: x가 증가하면 y도 증가해야 함 (x-y=v -> y=x-v) -> 기울기 +1
+
+            ctx.moveTo(c - 5000, -c - 5000);
+            ctx.lineTo(c + 5000, -c + 5000);
+            ctx.stroke();
+        }
+    }
+    function drawDiamondCursor(p) { ctx.strokeStyle='#ff3333'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p.x, p.y-25); ctx.lineTo(p.x+25, p.y); ctx.lineTo(p.x, p.y+25); ctx.lineTo(p.x-25, p.y); ctx.closePath(); ctx.stroke(); }
+    function drawCenterCursor(p) { ctx.strokeStyle='#3388ff'; ctx.lineWidth=2; ctx.beginPath(); ctx.moveTo(p.x, p.y-25); ctx.lineTo(p.x+25, p.y); ctx.lineTo(p.x, p.y+25); ctx.lineTo(p.x-25, p.y); ctx.closePath(); ctx.stroke(); ctx.beginPath(); ctx.moveTo(p.x-5, p.y); ctx.lineTo(p.x+5, p.y); ctx.moveTo(p.x, p.y-5); ctx.lineTo(p.x, p.y+5); ctx.stroke(); }
+    function drawLineObj(obj, layer, isPreview=false) {
+        if(!obj.points) return; const [p1, p2] = obj.points;
+        ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y); ctx.lineCap = 'round';
+        if (isPreview) ctx.globalAlpha = 0.6;
+        if (obj.type === 'asphalt') {
+            if (layer === 'side') { ctx.save(); ctx.lineWidth = ROAD_WIDTH; ctx.strokeStyle = 'rgba(0, 0, 0, 0.3)'; ctx.shadowColor = 'rgba(0, 0, 0, 0.4)'; ctx.shadowBlur = 15; ctx.stroke(); ctx.restore(); }
+            else { ctx.lineWidth = ROAD_WIDTH; ctx.strokeStyle = '#757575'; ctx.stroke(); ctx.lineWidth = ROAD_WIDTH + 6; ctx.strokeStyle = '#999'; ctx.globalCompositeOperation = 'destination-over'; ctx.stroke(); ctx.globalCompositeOperation = 'source-over'; }
+        } else if (obj.type === 'zebra') { ctx.lineWidth = 60; ctx.strokeStyle = '#fff'; ctx.setLineDash([8, 8]); ctx.lineCap = 'butt'; ctx.stroke(); ctx.setLineDash([]); ctx.lineCap = 'round';
+        } else if (obj.type === 'yellow') { ctx.lineWidth = 4; ctx.strokeStyle = '#fc0'; ctx.stroke();
+        } else if (obj.type === 'white-dot') { ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.setLineDash([10, 15]); ctx.stroke(); ctx.setLineDash([]);
+        } else if (obj.type === 'white-solid') { ctx.lineWidth = 2; ctx.strokeStyle = '#fff'; ctx.stroke();
+        } else if (obj.type === 'stop-line') { ctx.lineWidth = 10; ctx.strokeStyle = '#ffffff'; ctx.setLineDash([]); ctx.lineCap = 'butt'; ctx.stroke(); ctx.lineCap = 'round'; }
+        if (isPreview) ctx.globalAlpha = 1.0;
+    }
+    function drawTrafficLightShadow(x, y, dir) {
+        const scale = view.scale; const armLen = 50 * scale; let armDx = 0, armDy = 0, skewY = 0;
+        if (dir === 0) { armDx = armLen; armDy = armLen * PERSPECTIVE; skewY = -PERSPECTIVE; }
+        else if (dir === 1) { armDx = -armLen; armDy = armLen * PERSPECTIVE; skewY = PERSPECTIVE; }
+        else if (dir === 2) { armDx = -armLen; armDy = -armLen * PERSPECTIVE; skewY = -PERSPECTIVE; }
+        else if (dir === 3) { armDx = armLen; armDy = -armLen * PERSPECTIVE; skewY = PERSPECTIVE; }
+        ctx.beginPath(); ctx.ellipse(x, y, 8*scale, 4*scale, 0, 0, Math.PI*2); ctx.fill();
+        const hangX = x + armDx; const hangY = y + armDy; ctx.lineWidth = 4 * scale; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(hangX, hangY); ctx.stroke();
+        const boxW = 80 * scale; const boxH = 22 * scale; ctx.save(); ctx.translate(hangX, hangY); ctx.transform(1, skewY * PERSPECTIVE, 0, PERSPECTIVE, 0, 0);
+        ctx.beginPath(); ctx.roundRect(-boxW / 2, -boxH * 0.15, boxW, boxH * 0.3, 4); ctx.fill(); ctx.restore();
+    }
+    function drawRotatedTrafficLight(x, y, state, dir) {
+        const scale = view.scale; const poleH = 100 * scale; const armLen = 50 * scale;
+        ctx.fillStyle = '#222'; ctx.beginPath(); ctx.ellipse(x, y, 6*scale, 3*scale, 0, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = '#333'; ctx.lineWidth = 5 * scale; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - poleH); ctx.stroke();
+        let armDx = 0, armDy = 0, skewY = 0, isBack = false;
+        if (dir === 0) { armDx = armLen; armDy = armLen * PERSPECTIVE; skewY = -PERSPECTIVE; }
+        else if (dir === 1) { armDx = -armLen; armDy = armLen * PERSPECTIVE; skewY = PERSPECTIVE; }
+        else if (dir === 2) { armDx = -armLen; armDy = -armLen * PERSPECTIVE; skewY = -PERSPECTIVE; isBack = true; }
+        else if (dir === 3) { armDx = armLen; armDy = -armLen * PERSPECTIVE; skewY = PERSPECTIVE; isBack = true; }
+        const topX = x; const topY = y - poleH + (5 * scale); ctx.beginPath(); ctx.moveTo(topX, topY); ctx.lineTo(topX + armDx, topY + armDy); ctx.stroke();
+        const boxW = 80 * scale; const boxH = 22 * scale; const hangX = topX + armDx; const hangY = topY + armDy;
+        ctx.save(); ctx.translate(hangX, hangY); ctx.transform(1, skewY, 0, 1, 0, 0);
+        const bx = -boxW / 2; const by = 0; ctx.fillStyle = '#111'; ctx.beginPath(); ctx.roundRect(bx, by, boxW, boxH, 4); ctx.fill();
+        if (isBack) { ctx.fillStyle = '#222'; ctx.fillRect(bx + 2, by + 2, boxW - 4, boxH - 4); }
+        else {
+            const gap = 18 * scale; const sx = bx + 13 * scale; const ly = by + boxH / 2; const r = 5 * scale;
+            const drawL = (lx, c, on, ar) => {
+                ctx.fillStyle = '#222'; ctx.beginPath(); ctx.arc(lx, ly, r, 0, Math.PI*2); ctx.fill();
+                if(on) { ctx.fillStyle = c; ctx.shadowColor = c; ctx.shadowBlur = 10 * scale;
+                    if(ar) { const k = scale; ctx.beginPath(); ctx.moveTo(lx+4*k,ly-2*k); ctx.lineTo(lx-1*k,ly-2*k); ctx.lineTo(lx-1*k,ly-4*k); ctx.lineTo(lx-6*k,ly); ctx.lineTo(lx-1*k,ly+4*k); ctx.lineTo(lx-1*k,ly+2*k); ctx.lineTo(lx+4*k,ly+2*k); ctx.fill(); }
+                    else { ctx.beginPath(); ctx.arc(lx, ly, r, 0, Math.PI*2); ctx.fill(); }
+                    ctx.shadowBlur = 0; }
+            };
+            drawL(sx, '#f44', state===0); drawL(sx+gap, '#fc0', state===2); drawL(sx+gap*2, '#4f4', state===1 || state===4, true); drawL(sx+gap*3, '#4f4', state===3 || state===4);
+        }
+        ctx.restore();
+    }
+
+    function showOverlapMenu(x, y, hits) {
+        overlapMenu.style.display = 'flex';
+        overlapMenu.style.left = x + 'px';
+        overlapMenu.style.top = y + 'px';
+        overlapMenu.innerHTML = `<div class="menu-header">선택할 항목 (${hits.length}개)</div>`;
+
+        hits.forEach(obj => {
+            const item = document.createElement('div');
+            item.className = 'menu-item';
+
+            // 객체 타입별 이름과 아이콘 색상 지정
+            let name = "오브젝트";
+            let color = "#888";
+
+            if (obj.category === 'road') { name = "도로"; color = "#555"; }
+            else if (obj.category === 'marking') { name = `차선 (${obj.type})`; color = "#fc0"; }
+            else if (obj.category === 'road-text') { name = `글씨 "${obj.text}"`; color = "#333"; }
+            else if (obj.type === 'traffic') { name = "신호등"; color = "#f44"; }
+            else if (obj.type === 'compass') { name = "방위표"; color = "#44f"; }
+            else if (obj.category === 'route') { name = "진로 화살표"; color = obj.color; }
+
+            item.innerHTML = `<span class="menu-icon" style="background:${color}"></span> ${name} <span style="color:#aaa; font-size:10px;">#${obj.id}</span>`;
+
+            // 메뉴 항목 클릭 시 동작
+            item.onclick = (e) => {
+                e.stopPropagation(); // 중요: 클릭이 캔버스로 전달되지 않게 막음
+                selectedObjects = [obj]; // 해당 객체만 선택
+                draw(); // 화면 갱신
+                hideOverlapMenu(); // 메뉴 닫기
+            };
+
+            overlapMenu.appendChild(item);
+        });
+    }
+
+    // 메뉴 숨김 함수
+    function hideOverlapMenu() {
+        overlapMenu.style.display = 'none';
+    }
+
+    // 실행
+    init();
+</script>
+</body>
+</html>
